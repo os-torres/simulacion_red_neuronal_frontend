@@ -17,17 +17,20 @@ public class Visualizer3D : MonoBehaviour
 
     // -----------------------------------------------------------------------
     // Hardcoded colour palette (8 colours)
+    // Orden: Clase 1 = verde, Clase 2 = azul, Clase 3 = rojo, Clase 4 = naranja, …
+    // El class_id del backend empieza en 0 (Clase 1 = id 0), por eso el orden
+    // de la paleta está desplazado respecto a la numeración visible en la UI.
     // -----------------------------------------------------------------------
     private static readonly Color[] Palette = new Color[]
     {
-        new Color(0.906f, 0.298f, 0.235f), // #E74C3C
-        new Color(0.204f, 0.596f, 0.859f), // #3498DB
-        new Color(0.180f, 0.800f, 0.443f), // #2ECC71
-        new Color(0.953f, 0.612f, 0.071f), // #F39C12
-        new Color(0.608f, 0.349f, 0.714f), // #9B59B6
-        new Color(0.102f, 0.737f, 0.612f), // #1ABC9C
-        new Color(0.902f, 0.494f, 0.133f), // #E67E22
-        new Color(0.204f, 0.286f, 0.369f), // #34495E
+        new Color(0.180f, 0.800f, 0.443f), // #2ECC71 — verde    (Clase 1, id 0)
+        new Color(0.204f, 0.596f, 0.859f), // #3498DB — azul     (Clase 2, id 1)
+        new Color(0.906f, 0.298f, 0.235f), // #E74C3C — rojo     (Clase 3, id 2)
+        new Color(0.953f, 0.612f, 0.071f), // #F39C12 — naranja  (Clase 4, id 3)
+        new Color(0.608f, 0.349f, 0.714f), // #9B59B6 — morado   (Clase 5, id 4)
+        new Color(0.102f, 0.737f, 0.612f), // #1ABC9C — turquesa (Clase 6, id 5)
+        new Color(0.902f, 0.494f, 0.133f), // #E67E22 — ámbar    (Clase 7, id 6)
+        new Color(0.204f, 0.286f, 0.369f), // #34495E — pizarra  (Clase 8, id 7)
     };
 
     // -----------------------------------------------------------------------
@@ -95,13 +98,14 @@ public class Visualizer3D : MonoBehaviour
 
                 if (pt.correct)
                 {
-                    sphere.transform.localScale = Vector3.one * 0.12f;
+                    // Tamaño visible en el cubo [-4,4]: 0.18 = ~2.2% del espacio
+                    sphere.transform.localScale = Vector3.one * 0.18f;
                     ApplyOpaqueMaterial(sphere.GetComponent<Renderer>(), baseColor);
                 }
                 else
                 {
-                    // Misclassified: slightly larger, desaturated sphere + transparent halo
-                    sphere.transform.localScale = Vector3.one * 0.18f;
+                    // Clasificado incorrectamente: más grande + desaturado
+                    sphere.transform.localScale = Vector3.one * 0.26f;
                     Color desaturated = Desaturate(baseColor, 0.4f);
                     ApplyOpaqueMaterial(sphere.GetComponent<Renderer>(), desaturated);
 
@@ -156,9 +160,16 @@ public class Visualizer3D : MonoBehaviour
                 MeshRenderer mr = meshGO.AddComponent<MeshRenderer>();
                 mf.mesh = mesh;
 
-                Color bmColor = ParseHexColor(bm.color);
-                bmColor.a = 0.25f;
+                // Usar el color de la paleta por clase (mismo que los puntos) en lugar
+                // del color raw de la API, que podría fallar al parsear.
+                Color bmColor = GetColor(bm.class_id, data.colors);
+                bmColor.a = 0.12f;   // muy transparente para no tapar los puntos
                 ApplyTransparentMaterial(mr, bmColor);
+
+                // Contorno del mesh: aristas con el mismo color de clase, más opaco.
+                Color edgeColor = GetColor(bm.class_id, data.colors);
+                edgeColor.a = 0.60f;
+                DrawMeshEdges(meshGO.transform, normVerts, tris, vizLayerIdx, edgeColor);
             }
         }
 
@@ -252,72 +263,158 @@ public class Visualizer3D : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Material helpers — tries URP first, then Standard
+    // Material helpers
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Colorea un MeshRenderer opaco reutilizando el material que ya tiene
+    /// (asignado por CreatePrimitive → siempre válido para el Render Pipeline activo).
+    /// Sólo sobreescribimos las propiedades de color sin tocar el shader.
+    /// </summary>
     private static void ApplyOpaqueMaterial(Renderer renderer, Color color)
     {
-        Material mat = CreateOpaqueMaterial(color);
-        renderer.material = mat;
-    }
+        // renderer.material crea una copia instanciada del sharedMaterial.
+        // CreatePrimitive garantiza que ese material sea válido para el RP activo.
+        Material mat = renderer.material;
 
-    private static Material CreateOpaqueMaterial(Color color)
-    {
-        // Try URP Lit
-        Shader urp = Shader.Find("Universal Render Pipeline/Lit");
-        if (urp != null)
-        {
-            var mat = new Material(urp);
-            mat.SetColor("_BaseColor", color);
-            mat.color = color;
-            return mat;
-        }
+        // URP Lit / URP Unlit → propiedad _BaseColor
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+        // Built-in Standard / Sprites/Default → propiedad _Color
+        if (mat.HasProperty("_Color"))     mat.SetColor("_Color", color);
 
-        // Fallback: Built-in Standard
-        var fallback = new Material(Shader.Find("Standard"));
-        fallback.color = color;
-        return fallback;
+        // Asegurarse de que sea opaco (URP: Surface Type 0 = Opaque)
+        if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);
     }
 
     private static void ApplyTransparentMaterial(Renderer renderer, Color color)
     {
         Material mat = CreateTransparentMaterial(color);
-        renderer.material = mat;
+        if (mat != null) renderer.material = mat;
+    }
+
+    /// <summary>
+    /// Devuelve un Material válido para LineRenderer.
+    /// Usa Sprites/Default (siempre disponible) con _Color=blanco para que
+    /// lr.startColor/endColor (vertex colors) controlen el color final.
+    /// </summary>
+    private static Material CreateLineRendererMaterial(Color color)
+    {
+        // Sprites/Default: color_final = _Color × vertex_color
+        // Con _Color = blanco, el vertex color controla el resultado → startColor / endColor.
+        Shader sprites = Shader.Find("Sprites/Default");
+        if (sprites != null)
+        {
+            var mat = new Material(sprites);
+            mat.color = Color.white; // vertex color (startColor/endColor) domina
+            return mat;
+        }
+
+        // Fallback: URP Unlit con color directo (startColor/endColor no actúan,
+        // pero al menos el LineRenderer tiene un material válido y no es magenta).
+        Shader urpUnlit = Shader.Find("Universal Render Pipeline/Unlit");
+        if (urpUnlit != null)
+        {
+            var mat = new Material(urpUnlit);
+            mat.SetColor("_BaseColor", color);
+            return mat;
+        }
+
+        // Último recurso
+        Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
+        if (urpLit != null)
+        {
+            var mat = new Material(urpLit);
+            mat.SetColor("_BaseColor", color);
+            return mat;
+        }
+
+        Debug.LogWarning("[Visualizer3D] No se encontró ningún shader para LineRenderer.");
+        return null;
     }
 
     private static Material CreateTransparentMaterial(Color color)
     {
-        // Try URP Lit with transparent surface
-        Shader urp = Shader.Find("Universal Render Pipeline/Lit");
-        if (urp != null)
+        // Sprites/Default tiene alpha blending nativo. Disponible en TODOS
+        // los proyectos Unity sin importar el Render Pipeline.
+        // Solo asignamos color (incluye alpha) — el shader gestiona el blending.
+        Shader spriteDefault = Shader.Find("Sprites/Default");
+        if (spriteDefault != null)
         {
-            var mat = new Material(urp);
-            // Surface Type = 1 (Transparent)
-            mat.SetFloat("_Surface", 1f);
-            mat.SetFloat("_Blend",   0f); // Alpha blend
-            mat.SetFloat("_AlphaClip", 0f);
-            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            mat.SetFloat("_ZWrite",   0f);
-            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-            mat.SetColor("_BaseColor", color);
+            var mat = new Material(spriteDefault);
             mat.color = color;
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             return mat;
         }
 
-        // Fallback: Built-in Standard transparent
-        var fallbackStd = new Material(Shader.Find("Standard"));
-        fallbackStd.SetFloat("_Mode", 3f); // Transparent
-        fallbackStd.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        fallbackStd.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        fallbackStd.SetInt("_ZWrite", 0);
-        fallbackStd.DisableKeyword("_ALPHATEST_ON");
-        fallbackStd.EnableKeyword("_ALPHABLEND_ON");
-        fallbackStd.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        fallbackStd.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-        fallbackStd.color = color;
-        return fallbackStd;
+        // Fallback: URP Particles/Unlit — alpha nativo en URP
+        Shader particlesUnlit = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (particlesUnlit != null)
+        {
+            var mat = new Material(particlesUnlit);
+            mat.SetColor("_BaseColor", color);
+            mat.SetFloat("_Cull", 0f);
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return mat;
+        }
+
+        Debug.LogWarning("[Visualizer3D] No se encontró shader transparente.");
+        return null;
+    }
+
+    /// <summary>
+    /// Dibuja las aristas únicas de un mesh (sin duplicados) usando LineRenderers.
+    /// Aporta el "contorno" visible de la frontera de decisión sin ocluir los puntos.
+    /// </summary>
+    private static void DrawMeshEdges(Transform parent, Vector3[] verts, int[] tris,
+                                      int layer, Color color)
+    {
+        if (verts == null || tris == null) return;
+
+        // Recopila aristas únicas (par ordenado min→max para evitar duplicados)
+        var seen = new System.Collections.Generic.HashSet<long>();
+        var edges = new System.Collections.Generic.List<(int, int)>();
+
+        for (int i = 0; i < tris.Length - 2; i += 3)
+        {
+            int a = tris[i], b = tris[i + 1], c = tris[i + 2];
+            TryAddEdge(seen, edges, a, b);
+            TryAddEdge(seen, edges, b, c);
+            TryAddEdge(seen, edges, a, c);
+        }
+
+        // Limitar a un máximo de 600 aristas para no degradar el rendimiento
+        int limit = Mathf.Min(edges.Count, 600);
+        // Un solo material compartido por todas las aristas (Sprites/Default
+        // con vertex colors habilitados → startColor/endColor controlan el tono).
+        Material edgeMat = CreateLineRendererMaterial(color);
+
+        for (int e = 0; e < limit; e++)
+        {
+            var (i0, i1) = edges[e];
+            var go = new GameObject("Edge");
+            go.layer = layer;
+            go.transform.SetParent(parent, false);
+
+            var lr = go.AddComponent<LineRenderer>();
+            lr.useWorldSpace = false;
+            lr.positionCount = 2;
+            lr.SetPosition(0, verts[i0]);
+            lr.SetPosition(1, verts[i1]);
+            lr.startWidth = 0.015f;
+            lr.endWidth   = 0.015f;
+            if (edgeMat != null) lr.material = edgeMat;
+            lr.startColor = color;
+            lr.endColor   = color;
+        }
+    }
+
+    private static void TryAddEdge(System.Collections.Generic.HashSet<long> seen,
+                                    System.Collections.Generic.List<(int, int)> list,
+                                    int a, int b)
+    {
+        int lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
+        long key = ((long)lo << 32) | (uint)hi;
+        if (seen.Add(key)) list.Add((lo, hi));
     }
 
     // -----------------------------------------------------------------------
@@ -333,9 +430,9 @@ public class Visualizer3D : MonoBehaviour
         boxRoot.layer = vizLayerIdx;
         boxRoot.transform.SetParent(root3D, false);
 
-        Color boxColor = new Color(0.667f, 0.667f, 0.667f); // #AAAAAA
+        Color boxColor = new Color(0.5f, 0.5f, 0.5f, 0.5f); // gris semitransparente
 
-        // 8 corners of the [-4,4]^3 cube
+        // ── Bounding box (12 aristas grises finas) ───────────────────────────
         Vector3[] corners = new Vector3[]
         {
             new Vector3(-4,-4,-4), new Vector3( 4,-4,-4),
@@ -343,40 +440,73 @@ public class Visualizer3D : MonoBehaviour
             new Vector3(-4,-4, 4), new Vector3( 4,-4, 4),
             new Vector3( 4, 4, 4), new Vector3(-4, 4, 4),
         };
-
-        // 12 edges: pairs of corner indices
         int[,] edges = new int[,]
         {
-            {0,1},{1,2},{2,3},{3,0}, // bottom face
-            {4,5},{5,6},{6,7},{7,4}, // top face
-            {0,4},{1,5},{2,6},{3,7}  // verticals
+            {0,1},{1,2},{2,3},{3,0},
+            {4,5},{5,6},{6,7},{7,4},
+            {0,4},{1,5},{2,6},{3,7}
         };
-
+        Material boxMat = CreateLineRendererMaterial(boxColor);
         for (int e = 0; e < edges.GetLength(0); e++)
         {
-            GameObject lineGO = new GameObject($"Edge_{e}");
+            var lineGO = new GameObject($"BoxEdge_{e}");
             lineGO.layer = vizLayerIdx;
             lineGO.transform.SetParent(boxRoot.transform, false);
-
-            LineRenderer lr = lineGO.AddComponent<LineRenderer>();
-            lr.useWorldSpace   = false;
-            lr.positionCount   = 2;
+            var lr = lineGO.AddComponent<LineRenderer>();
+            lr.useWorldSpace = false; lr.positionCount = 2;
             lr.SetPosition(0, corners[edges[e, 0]]);
             lr.SetPosition(1, corners[edges[e, 1]]);
-            lr.startWidth      = 0.03f;
-            lr.endWidth        = 0.03f;
-            lr.material        = CreateOpaqueMaterial(boxColor);
-            lr.startColor      = boxColor;
-            lr.endColor        = boxColor;
+            lr.startWidth = 0.02f; lr.endWidth = 0.02f;
+            if (boxMat != null) lr.material = boxMat;
+            lr.startColor = boxColor; lr.endColor = boxColor;
         }
 
-        // --- Axis labels (TMP world-space) ---
-        CreateAxisLabel(boxRoot.transform, "X\u2081", new Vector3(4.6f,  -4f,  -4f), Color.red);
-        CreateAxisLabel(boxRoot.transform, "X\u2082", new Vector3(-4f,   4.6f, -4f), Color.green);
-        CreateAxisLabel(boxRoot.transform, "X\u2083", new Vector3(-4f,   -4f,  4.6f), Color.cyan);
+        // ── Ejes principales coloreados (gruesos, desde el origen hasta ±4) ──
+        // X = rojo, Y = verde, Z = azul — colores estándar de Unity
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3( 4, 0, 0), Color.red,   0.06f, "AxisX+");
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3(-4, 0, 0),
+            new Color(1f, 0.4f, 0.4f), 0.03f, "AxisX-");
 
-        // --- Tick marks on each axis (5 ticks) ---
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3(0,  4, 0), Color.green, 0.06f, "AxisY+");
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3(0, -4, 0),
+            new Color(0.4f, 1f, 0.4f), 0.03f, "AxisY-");
+
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3(0, 0,  4), Color.blue,  0.06f, "AxisZ+");
+        DrawAxis(boxRoot.transform, vizLayerIdx,
+            Vector3.zero, new Vector3(0, 0, -4),
+            new Color(0.4f, 0.6f, 1f), 0.03f, "AxisZ-");
+
+        // ── Etiquetas de ejes ─────────────────────────────────────────────────
+        CreateAxisLabel(boxRoot.transform, "X", new Vector3(4.8f,  0f,   0f),   Color.red);
+        CreateAxisLabel(boxRoot.transform, "Y", new Vector3(0f,    4.8f, 0f),   Color.green);
+        CreateAxisLabel(boxRoot.transform, "Z", new Vector3(0f,    0f,   4.8f), Color.blue);
+
+        // ── Marcas de graduación ──────────────────────────────────────────────
         CreateAxisTicks(boxRoot.transform, boxColor);
+    }
+
+    private static void DrawAxis(Transform parent, int layer,
+        Vector3 from, Vector3 to, Color color, float width, string goName)
+    {
+        var go = new GameObject(goName);
+        go.layer = layer;
+        go.transform.SetParent(parent, false);
+        var lr = go.AddComponent<LineRenderer>();
+        lr.useWorldSpace = false;
+        lr.positionCount = 2;
+        lr.SetPosition(0, from);
+        lr.SetPosition(1, to);
+        lr.startWidth = width;
+        lr.endWidth   = width * 0.4f;   // flecha cónica
+        var axisMat = CreateLineRendererMaterial(color);
+        if (axisMat != null) lr.material = axisMat;
+        lr.startColor = color;
+        lr.endColor   = color;
     }
 
     private static void CreateAxisLabel(Transform parent, string text, Vector3 localPos, Color color)
@@ -435,7 +565,8 @@ public class Visualizer3D : MonoBehaviour
         lr.SetPosition(1, to);
         lr.startWidth = 0.02f;
         lr.endWidth   = 0.02f;
-        lr.material   = CreateOpaqueMaterial(color);
+        var tickMat = CreateLineRendererMaterial(color);
+        if (tickMat != null) lr.material = tickMat;
         lr.startColor = color;
         lr.endColor   = color;
     }

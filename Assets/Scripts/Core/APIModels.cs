@@ -238,6 +238,18 @@ public class VisualizationData3D
     public int total_points;
 }
 
+// ── Data Points ──────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Respuesta de /api/data/points — todos los puntos generados con sus clases.
+/// </summary>
+[System.Serializable]
+public class DataPointsResponse
+{
+    public DataPoint3D[] points;
+    public int total;
+}
+
 // ── Results ──────────────────────────────────────────────────────────────────
 
 [System.Serializable]
@@ -269,7 +281,9 @@ public class ResultsResponse
     public PerClassMetric[] per_class_metrics;
     public int[] architecture;
     public string activation;
-    public int epochs;
+    public int epochs;              // épocas realmente ejecutadas
+    public int epochs_configured;   // épocas configuradas por el usuario
+    public bool early_stopped;      // true si se detuvo antes de completar todas
     public int total_params;
 
     /// <summary>Devuelve la matriz de confusión como int[][].</summary>

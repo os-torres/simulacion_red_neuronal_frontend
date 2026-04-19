@@ -89,7 +89,7 @@ public class StatusBar : MonoBehaviour
         SetIndicator(ColorGreen);
 
         string main = string.Format(
-            "✅ ENTRENAMIENTO FINALIZADO | PRECISIÓN: {0:F2}% | ÉPOCAS: {1}",
+            "ENTRENAMIENTO FINALIZADO | PRECISION: {0:F2}% | EPOCAS: {1}",
             status.accuracy_pct,
             status.total_epochs);
 

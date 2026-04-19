@@ -100,6 +100,26 @@ public class APIManager : MonoBehaviour
         StartCoroutine(GetTexture($"{BASE_URL}/api/plot/{plotType}", callback));
     }
 
+    /// <summary>POST /api/reset — reinicia el estado del servidor.</summary>
+    public void Reset(Action<bool, string> callback)
+    {
+        StartCoroutine(PostJson<object, HealthResponse>(
+            $"{BASE_URL}/api/reset", new object(),
+            (response, error) =>
+            {
+                if (error != null) callback?.Invoke(false, error);
+                else               callback?.Invoke(true, response?.message ?? "OK");
+            }
+        ));
+    }
+
+    /// <summary>GET /api/data/points — todos los puntos generados con sus clases.</summary>
+    public void GetDataPoints(Action<DataPointsResponse, string> callback)
+    {
+        StartCoroutine(GetRequest<DataPointsResponse>(
+            $"{BASE_URL}/api/data/points", callback));
+    }
+
     /// <summary>GET /api/visualization/3d — datos de visualización 3D.</summary>
     public void Get3DData(Action<VisualizationData3D, string> callback)
     {
@@ -239,9 +259,19 @@ public class APIManager : MonoBehaviour
                 yield break;
             }
 
-            string filePath = System.IO.Path.Combine(Application.persistentDataPath, filename);
+            // Si filename ya es una ruta absoluta la usamos tal cual;
+            // si no, la combinamos con persistentDataPath (comportamiento anterior).
+            string filePath = System.IO.Path.IsPathRooted(filename)
+                ? filename
+                : System.IO.Path.Combine(Application.persistentDataPath, filename);
+
             try
             {
+                // Crear el directorio si no existe
+                string dir = System.IO.Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir))
+                    System.IO.Directory.CreateDirectory(dir);
+
                 System.IO.File.WriteAllBytes(filePath, request.downloadHandler.data);
                 Debug.Log($"[APIManager] Archivo guardado en: {filePath}");
                 callback?.Invoke(true, filePath);

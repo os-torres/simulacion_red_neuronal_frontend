@@ -19,6 +19,7 @@ public class AppController : MonoBehaviour
     [SerializeField] private Visualizer3D  visualizer3D;
     [SerializeField] private ClassifyPanel classifyPanel;
     [SerializeField] private ResultsPanel  resultsPanel;
+    [SerializeField] private DataPanel     dataPanel;
 
     // ── Parámetros de polling ─────────────────────────────────────────────────
 
@@ -294,7 +295,87 @@ public class AppController : MonoBehaviour
         });
     }
 
+    // ── Reinicio ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reinicia el servidor y toda la UI al estado inicial.
+    /// Equivale a "empezar de nuevo" sin cerrar la aplicación.
+    /// </summary>
+    public void OnResetClicked()
+    {
+        if (!_connected)
+        {
+            statusBar?.SetError("Sin conexion con la API.");
+            return;
+        }
+
+        // Detener polling si está activo
+        if (_trainingCoroutine != null)
+        {
+            StopCoroutine(_trainingCoroutine);
+            _trainingCoroutine = null;
+        }
+        _polling = false;
+
+        // Llamar al endpoint de reset
+        APIManager.Instance.Reset((success, msg) =>
+        {
+            if (!success)
+            {
+                statusBar?.SetError("Error al reiniciar: " + msg);
+                return;
+            }
+
+            // Limpiar todos los paneles
+            resultsPanel?.Reset();
+            dataPanel?.Reset();
+            graphDisplay?.Hide();
+            visualizer3D?.Clear();
+
+            statusBar?.SetConnected();
+            Debug.Log("[AppController] Reset completado.");
+        });
+    }
+
+    // ── Tabla de datos ────────────────────────────────────────────────────────
+
+    /// <summary>Carga y muestra todos los puntos generados en el DataPanel.</summary>
+    public void OnShowData()
+    {
+        if (!_connected)
+        {
+            statusBar?.SetError("Sin conexión con la API.");
+            return;
+        }
+
+        dataPanel?.ShowLoading();
+
+        APIManager.Instance.GetDataPoints((response, error) =>
+        {
+            if (error != null)
+            {
+                dataPanel?.ShowError(error);
+                statusBar?.SetError("Error cargando datos: " + error);
+                return;
+            }
+
+            dataPanel?.LoadData(response);
+        });
+    }
+
     // ── Exportación ───────────────────────────────────────────────────────────
+
+    // Carpeta donde se guardan CSV y PDF.
+    // Se crea automáticamente si no existe.
+    private const string ExportFolder =
+        "/Users/oscartorres/Desarrollo/Universidad/Inteligencia Artificial" +
+        "/Segunda Entrega/Exportaciones_NN";
+
+    private static string ExportPath(string filename)
+    {
+        System.IO.Directory.CreateDirectory(ExportFolder);
+        return System.IO.Path.Combine(ExportFolder, filename);
+    }
 
     /// <summary>Descarga y guarda el reporte CSV.</summary>
     public void OnExportCSV()
@@ -305,18 +386,19 @@ public class AppController : MonoBehaviour
             return;
         }
 
-        APIManager.Instance.DownloadFile("/api/export/csv", "resultados.csv", (success, pathOrError) =>
-        {
-            if (success)
+        APIManager.Instance.DownloadFile("/api/export/csv", ExportPath("resultados.csv"),
+            (success, pathOrError) =>
             {
-                statusBar?.SetConnected();
-                Debug.Log("[AppController] CSV exportado en: " + pathOrError);
-            }
-            else
-            {
-                statusBar?.SetError("Error exportando CSV: " + pathOrError);
-            }
-        });
+                if (success)
+                {
+                    statusBar?.SetConnected();
+                    Debug.Log("[AppController] CSV exportado en: " + pathOrError);
+                }
+                else
+                {
+                    statusBar?.SetError("Error exportando CSV: " + pathOrError);
+                }
+            });
     }
 
     /// <summary>Descarga y guarda el reporte PDF.</summary>
@@ -328,17 +410,18 @@ public class AppController : MonoBehaviour
             return;
         }
 
-        APIManager.Instance.DownloadFile("/api/export/pdf", "resultados.pdf", (success, pathOrError) =>
-        {
-            if (success)
+        APIManager.Instance.DownloadFile("/api/export/pdf", ExportPath("resultados.pdf"),
+            (success, pathOrError) =>
             {
-                statusBar?.SetConnected();
-                Debug.Log("[AppController] PDF exportado en: " + pathOrError);
-            }
-            else
-            {
-                statusBar?.SetError("Error exportando PDF: " + pathOrError);
-            }
-        });
+                if (success)
+                {
+                    statusBar?.SetConnected();
+                    Debug.Log("[AppController] PDF exportado en: " + pathOrError);
+                }
+                else
+                {
+                    statusBar?.SetError("Error exportando PDF: " + pathOrError);
+                }
+            });
     }
 }

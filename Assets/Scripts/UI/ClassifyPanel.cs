@@ -26,17 +26,18 @@ public class ClassifyPanel : MonoBehaviour
     [SerializeField] private Image           imgClassColor;
 
     // ── Paleta de colores por clase ───────────────────────────────────────────
-
+    // Orden: class_id 0 → Clase 1 (verde), class_id 1 → Clase 2 (azul), etc.
+    // Debe coincidir con Visualizer3D.Palette y boundary.py CLASS_COLORS.
     private static readonly string[] ClassHexColors =
     {
-        "#E74C3C",   // Clase 0 — rojo
-        "#3498DB",   // Clase 1 — azul
-        "#2ECC71",   // Clase 2 — verde
-        "#F39C12",   // Clase 3 — naranja
-        "#9B59B6",   // Clase 4 — violeta
-        "#1ABC9C",   // Clase 5 — turquesa
-        "#E67E22",   // Clase 6 — naranja oscuro
-        "#34495E",   // Clase 7 — gris azulado
+        "#2ECC71",   // class_id 0 → Clase 1 — verde
+        "#3498DB",   // class_id 1 → Clase 2 — azul
+        "#E74C3C",   // class_id 2 → Clase 3 — rojo
+        "#F39C12",   // class_id 3 → Clase 4 — naranja
+        "#9B59B6",   // class_id 4 → Clase 5 — violeta
+        "#1ABC9C",   // class_id 5 → Clase 6 — turquesa
+        "#E67E22",   // class_id 6 → Clase 7 — naranja oscuro
+        "#34495E",   // class_id 7 → Clase 8 — gris azulado
     };
 
     // =========================================================================
@@ -117,9 +118,10 @@ public class ClassifyPanel : MonoBehaviour
         // La API ya devuelve confidence como porcentaje (0-100).
         if (txtResult != null)
         {
+            // class_id es 0-indexed en el backend; la UI lo muestra como 1-indexed.
             txtResult.text = string.Format(
                 "CLASE {0} — {1:F2}% confianza",
-                response.class_id,
+                response.class_id + 1,
                 response.confidence);
         }
 
@@ -136,7 +138,8 @@ public class ClassifyPanel : MonoBehaviour
                 // La API ya devuelve probabilities como porcentajes (0-100).
                 for (int i = 0; i < response.probabilities.Length; i++)
                 {
-                    sb.AppendFormat("Clase {0}: {1:F2}%", i, response.probabilities[i]);
+                    // i es 0-indexed; mostrar como 1-indexed
+                    sb.AppendFormat("Clase {0}: {1:F2}%", i + 1, response.probabilities[i]);
                     if (i < response.probabilities.Length - 1)
                         sb.AppendLine();
                 }
