@@ -297,7 +297,7 @@ public static class SceneSetupWizard
         s_root3DGO = new GameObject("Root3D");
         s_root3DGO.AddComponent<Visualizer3D>();
 
-        // Camera3D
+        // Camera3D — renderiza la escena 3D a un RenderTexture (no al display)
         var cam3DGO = new GameObject("Camera3D");
         var cam3D   = cam3DGO.AddComponent<Camera>();
         cam3D.clearFlags      = CameraClearFlags.SolidColor;
@@ -311,7 +311,24 @@ public static class SceneSetupWizard
 
         cam3DGO.AddComponent<CameraOrbit>();
 
-        // Main Camera: excluir capa Visualization
+        // Main Camera: asegurarse de que existe una cámara renderizando al
+        // Display 1 para evitar el mensaje "No cameras rendering" en Game view.
+        // Como el Canvas usa ScreenSpaceOverlay, esta cámara solo necesita existir
+        // (cullingMask = 0 → no renderiza ninguna geometría de escena).
+        if (Camera.main == null)
+        {
+            var mainCamGO = new GameObject("Main Camera");
+            mainCamGO.tag = "MainCamera";
+            var mainCam = mainCamGO.AddComponent<Camera>();
+            mainCam.clearFlags      = CameraClearFlags.SolidColor;
+            mainCam.backgroundColor = Color.black;
+            mainCam.cullingMask     = 0;   // no renderiza objetos 3D
+            mainCam.depth           = -1;  // detrás de Camera3D
+            mainCam.targetDisplay   = 0;   // Display 1
+            mainCamGO.AddComponent<AudioListener>();
+        }
+
+        // Excluir capa Visualization de la Main Camera
         if (Camera.main != null && vizIdx >= 0)
             Camera.main.cullingMask &= ~(1 << vizIdx);
     }

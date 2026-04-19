@@ -114,6 +114,23 @@ public class ConfigPanel : MonoBehaviour
         // Buscar el ScrollRect padre (LeftScroll) para preservar posición
         _parentScroll = GetComponentInParent<ScrollRect>();
 
+        // Forzar las opciones del dropdown en runtime.
+        // El prefab TMP siempre restaura "Option A/B/C" al cargar la escena;
+        // re-aplicarlas aquí garantiza los nombres correctos sin importar
+        // lo que haya quedado serializado en la escena.
+        if (dropdownActivacion != null)
+        {
+            dropdownActivacion.ClearOptions();
+            dropdownActivacion.AddOptions(new System.Collections.Generic.List<TMP_Dropdown.OptionData>
+            {
+                new TMP_Dropdown.OptionData("ReLU"),
+                new TMP_Dropdown.OptionData("Sigmoid"),
+                new TMP_Dropdown.OptionData("Tanh"),
+            });
+            // RefreshShownValue actualiza el texto visible del label al valor actual.
+            dropdownActivacion.RefreshShownValue();
+        }
+
         ApplyDefaults();
         RegisterCallbacks();
         RefreshDynamicPanels();
